@@ -51,8 +51,10 @@ def create_app(test_config=None):
         """
         from flask import request
         from backend.store import get_store, CartError
+        from backend.audit import get_audit_logger
 
         store = get_store()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
 
         if request.method == "GET":
             session_id = request.args.get("session_id")
@@ -93,6 +95,14 @@ def create_app(test_config=None):
                     }), 400
                 qty = 1 if quantity is None else quantity
                 cart_dict = store.add_item(session_id, sku, qty)
+                audit_logger.log(
+                    session_id=session_id,
+                    actor="buyer_agent",
+                    action="cart_add",
+                    payload_summary={"sku": sku, "quantity": qty},
+                    policy_result="ALLOWED",
+                    reason="Product added to cart",
+                )
             elif action == "update":
                 if not sku:
                     return jsonify({
@@ -107,6 +117,14 @@ def create_app(test_config=None):
                         "message": "Field 'quantity' is required for action 'update'.",
                     }), 400
                 cart_dict = store.update_item(session_id, sku, quantity)
+                audit_logger.log(
+                    session_id=session_id,
+                    actor="buyer_agent",
+                    action="cart_update",
+                    payload_summary={"sku": sku, "quantity": quantity},
+                    policy_result="ALLOWED",
+                    reason="Cart item updated",
+                )
             elif action == "remove":
                 if not sku:
                     return jsonify({
@@ -115,8 +133,24 @@ def create_app(test_config=None):
                         "message": "Field 'sku' is required for action 'remove'.",
                     }), 400
                 cart_dict = store.remove_item(session_id, sku)
+                audit_logger.log(
+                    session_id=session_id,
+                    actor="buyer_agent",
+                    action="cart_remove",
+                    payload_summary={"sku": sku},
+                    policy_result="ALLOWED",
+                    reason="Cart item removed",
+                )
             elif action == "clear":
                 cart_dict = store.clear_cart(session_id)
+                audit_logger.log(
+                    session_id=session_id,
+                    actor="buyer_agent",
+                    action="cart_clear",
+                    payload_summary={},
+                    policy_result="ALLOWED",
+                    reason="Cart cleared",
+                )
             else:
                 return jsonify({
                     "status": "error",
@@ -130,6 +164,14 @@ def create_app(test_config=None):
             }), 200
 
         except CartError as exc:
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action=f"cart_{action or 'unknown'}",
+                payload_summary=data,
+                policy_result="REJECTED",
+                reason=exc.message,
+            )
             return jsonify({
                 "status": "error",
                 "code": exc.code,
@@ -146,14 +188,24 @@ def create_app(test_config=None):
         from backend.store import get_store
         from backend.policy import get_policy_engine
         from backend.catalog import get_catalog_manager
+        from backend.audit import get_audit_logger
 
         store = get_store()
         policy_engine = get_policy_engine()
         catalog_mgr = get_catalog_manager()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
 
         if request.method == "DELETE":
             session_id = request.args.get("session_id")
             cart_dict = store.remove_discount(session_id)
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="discount_remove",
+                payload_summary={},
+                policy_result="ALLOWED",
+                reason="Discount removed from cart",
+            )
             return jsonify({
                 "status": "removed",
                 "message": "Discount removed from cart.",
@@ -167,6 +219,14 @@ def create_app(test_config=None):
 
         if action == "remove" or not coupon_code:
             cart_dict = store.remove_discount(session_id)
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="discount_remove",
+                payload_summary={"action": "remove"},
+                policy_result="ALLOWED",
+                reason="Discount removed from cart",
+            )
             return jsonify({
                 "status": "removed",
                 "message": "Discount removed from cart.",
@@ -177,6 +237,14 @@ def create_app(test_config=None):
         policy_res = policy_engine.validate_coupon(coupon_code)
 
         if not policy_res.allowed:
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="discount_request",
+                payload_summary={"coupon_code": coupon_code},
+                policy_result="REJECTED",
+                reason=policy_res.reason,
+            )
             return jsonify({
                 "status": "rejected",
                 "reason": policy_res.reason,
@@ -190,6 +258,19 @@ def create_app(test_config=None):
 
         # Apply to session cart
         cart_dict = store.apply_discount(session_id, coupon_code, discount_pct)
+
+        audit_logger.log(
+            session_id=session_id or "unknown",
+            actor="buyer_agent",
+            action="discount_request",
+            payload_summary={
+                "coupon_code": coupon_code.upper(),
+                "discount_pct": discount_pct,
+                "discount_amount": cart_dict.get("discount_amount", 0),
+            },
+            policy_result="ALLOWED",
+            reason=policy_res.reason,
+        )
 
         return jsonify({
             "status": "applied",
@@ -211,10 +292,12 @@ def create_app(test_config=None):
         from backend.store import get_store, CartError
         from backend.policy import get_policy_engine
         from backend.catalog import get_catalog_manager
+        from backend.audit import get_audit_logger
 
         store = get_store()
         policy_engine = get_policy_engine()
         catalog_mgr = get_catalog_manager()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
 
         data = request.get_json(silent=True) or {}
         session_id = data.get("session_id") or request.args.get("session_id")
@@ -241,6 +324,14 @@ def create_app(test_config=None):
         )
 
         if not policy_res.allowed:
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="upsell_request",
+                payload_summary={"sku": upsell_sku, "price": upsell_price},
+                policy_result="REJECTED",
+                reason=policy_res.reason,
+            )
             return jsonify({
                 "status": "rejected",
                 "reason": policy_res.reason,
@@ -251,7 +342,23 @@ def create_app(test_config=None):
 
         try:
             updated_cart = store.add_upsell_item(session_id, upsell_sku)
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="upsell_request",
+                payload_summary={"sku": upsell_sku, "price": upsell_price},
+                policy_result="ALLOWED",
+                reason=policy_res.reason,
+            )
         except CartError as exc:
+            audit_logger.log(
+                session_id=session_id or "unknown",
+                actor="buyer_agent",
+                action="upsell_request",
+                payload_summary={"sku": upsell_sku},
+                policy_result="REJECTED",
+                reason=exc.message,
+            )
             return jsonify({
                 "status": "rejected",
                 "reason": exc.message,
@@ -265,6 +372,24 @@ def create_app(test_config=None):
             "upsell_sku": upsell_sku,
             "cart": updated_cart,
             "policy_result": policy_res.to_dict(),
+        }), 200
+
+    @app.route("/audit", methods=["GET"])
+    def get_audit_trail():
+        """Exposes immutable audit trail records for merchant review."""
+        from flask import request
+        from backend.audit import get_audit_logger
+
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
+        session_id = request.args.get("session_id")
+        limit = int(request.args.get("limit", 100))
+        offset = int(request.args.get("offset", 0))
+
+        entries = audit_logger.get_entries(session_id=session_id, limit=limit, offset=offset)
+        return jsonify({
+            "status": "success",
+            "count": len(entries),
+            "audit_trail": entries,
         }), 200
 
     return app
