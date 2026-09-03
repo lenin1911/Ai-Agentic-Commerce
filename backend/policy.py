@@ -211,14 +211,22 @@ class PolicyEngine:
             code="WITHIN_SPEND_CEILING",
         )
 
-    def check_human_approval(self, amount: int) -> PolicyResult:
+    def check_human_approval(self, amount: int, human_approved: bool = False) -> PolicyResult:
         """
-        Determines whether a transaction requires explicit human approval sign-off (> ₹5,000).
+        Determines whether a transaction requires explicit human approval sign-off (>= ₹5,000).
+        If human_approved is True, returns approval confirmed.
         """
-        if amount > self.human_approval_threshold:
+        if human_approved:
+            return PolicyResult(
+                allowed=True,
+                reason="Transaction verified and explicitly signed off by human supervisor.",
+                code="HUMAN_APPROVAL_GRANTED",
+            )
+
+        if amount >= self.human_approval_threshold:
             return PolicyResult(
                 allowed=False,
-                reason=f"Order total ₹{amount} exceeds human approval threshold of ₹{self.human_approval_threshold}.",
+                reason=f"Order total ₹{amount} meets or exceeds human approval threshold of ₹{self.human_approval_threshold}.",
                 code="HUMAN_APPROVAL_REQUIRED",
             )
         return PolicyResult(

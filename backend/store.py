@@ -52,6 +52,9 @@ class Cart:
         self.items: Dict[str, CartItem] = {}
         self.applied_coupon: Optional[Dict[str, Any]] = None
         self.upsells_count: int = 0
+        self.human_approved: bool = False
+        self.approval_decision: Optional[str] = None
+        self.approved_by: Optional[str] = None
 
     @property
     def item_count(self) -> int:
@@ -81,6 +84,11 @@ class Cart:
     def remove_discount(self) -> None:
         self.applied_coupon = None
 
+    def set_approval(self, approved: bool, approver: str = "merchant_admin") -> None:
+        self.human_approved = approved
+        self.approval_decision = "approved" if approved else "rejected"
+        self.approved_by = approver
+
     def to_dict(self) -> Dict[str, Any]:
         items_list = [item.to_dict() for item in self.items.values()]
         return {
@@ -92,6 +100,9 @@ class Cart:
             "applied_coupon": self.applied_coupon,
             "total": self.total,
             "upsells_count": self.upsells_count,
+            "human_approved": self.human_approved,
+            "approval_decision": self.approval_decision,
+            "approved_by": self.approved_by,
             "currency": "INR",
         }
 
@@ -259,6 +270,12 @@ class Store:
                 currency=product.get("currency", "INR"),
             )
         cart.upsells_count += 1
+        return cart.to_dict()
+
+    def set_human_approval(self, session_id: str, approved: bool, approver: str = "merchant_admin") -> Dict[str, Any]:
+        """Sets explicit human sign-off status on a session cart."""
+        cart = self.get_or_create_cart(session_id)
+        cart.set_approval(approved, approver)
         return cart.to_dict()
 
     def reset_all(self) -> None:

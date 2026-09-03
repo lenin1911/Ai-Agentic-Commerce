@@ -460,8 +460,28 @@ def create_app(test_config=None):
                 "policy_result": spend_res.to_dict(),
             }), 200
 
-        # 3. Human Approval Threshold Check (> ₹5,000)
-        approval_res = policy_engine.check_human_approval(order_total)
+        # 3. Human Approval Threshold Check (>= ₹5,000)
+        if cart.get("approval_decision") == "rejected":
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="checkout",
+                payload_summary={"amount": order_total, "buyer_info": buyer_info},
+                policy_result="REJECTED",
+                reason="Order was explicitly rejected by human supervisor.",
+            )
+            return jsonify({
+                "status": "rejected",
+                "code": "HUMAN_APPROVAL_REJECTED",
+                "reason": "Checkout blocked: order was explicitly rejected by human supervisor.",
+                "cart": cart,
+            }), 200
+
+        is_approved = cart.get("human_approved", False) or bool(data.get("human_approved"))
+        if data.get("human_approved") and not cart.get("human_approved"):
+            cart = store.set_human_approval(session_id, approved=True, approver=data.get("approved_by", "human_supervisor"))
+
+        approval_res = policy_engine.check_human_approval(order_total, human_approved=is_approved)
         if not approval_res.allowed:
             audit_logger.log(
                 session_id=session_id,
@@ -489,7 +509,7 @@ def create_app(test_config=None):
             amount_in_inr=order_total,
             currency=cart.get("currency", "INR"),
             receipt=f"rcpt_{session_id[:10]}",
-            notes={"session_id": session_id, "buyer_info": buyer_info},
+            notes={"session_id": session_id, "buyer_info": buyer_info, "human_approved": is_approved},
         )
         order_id = rzp_order["id"]
 
@@ -497,9 +517,9 @@ def create_app(test_config=None):
             session_id=session_id,
             actor="buyer_agent",
             action="checkout",
-            payload_summary={"amount": order_total, "order": rzp_order},
+            payload_summary={"amount": order_total, "order": rzp_order, "human_approved": is_approved},
             policy_result="ALLOWED",
-            reason="Order approved within autonomous policy boundaries.",
+            reason=approval_res.reason,
             razorpay_ref=order_id,
         )
 
@@ -511,6 +531,59 @@ def create_app(test_config=None):
             "currency": cart.get("currency", "INR"),
             "cart": cart,
             "policy_result": approval_res.to_dict(),
+        }), 200
+
+    @app.route("/agent/approval", methods=["POST"])
+    def agent_approval():
+        """
+        Human approval gate endpoint.
+        Allows a merchant supervisor to explicitly approve or reject a high-value order.
+        """
+        from flask import request
+        from backend.store import get_store
+        from backend.audit import get_audit_logger
+
+        store = get_store()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
+
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id") or request.args.get("session_id")
+        decision = data.get("decision", "").lower().strip()
+        approver = data.get("approved_by", "human_supervisor")
+        reason = data.get("reason", "")
+
+        if not session_id:
+            return jsonify({
+                "status": "error",
+                "code": "MISSING_SESSION_ID",
+                "message": "Field 'session_id' is required for approval decision.",
+            }), 400
+
+        is_approved = decision in ["approved", "approve", "yes", "true"]
+        cart_dict = store.set_human_approval(session_id, approved=is_approved, approver=approver)
+
+        policy_verdict = "ALLOWED" if is_approved else "REJECTED"
+        default_reason = (
+            f"Human supervisor '{approver}' granted approval."
+            if is_approved
+            else f"Human supervisor '{approver}' rejected the transaction."
+        )
+
+        audit_logger.log(
+            session_id=session_id,
+            actor="merchant",
+            action="human_approval",
+            payload_summary={"decision": decision, "approved_by": approver, "amount": cart_dict.get("total")},
+            policy_result=policy_verdict,
+            reason=reason or default_reason,
+        )
+
+        return jsonify({
+            "status": "success",
+            "decision": "approved" if is_approved else "rejected",
+            "approved_by": approver,
+            "session_id": session_id,
+            "cart": cart_dict,
         }), 200
 
     @app.route("/agent/payment/capture", methods=["POST"])
@@ -544,6 +617,23 @@ def create_app(test_config=None):
 
         cart = store.get_cart_dict(session_id)
         capture_amount = amount or cart.get("total", 0)
+
+        # Block capture if order was explicitly rejected by human supervisor
+        if cart.get("approval_decision") == "rejected":
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="payment_capture",
+                payload_summary={"order_id": order_id, "payment_id": payment_id},
+                policy_result="REJECTED",
+                reason="Capture blocked: order was explicitly rejected by human supervisor.",
+                razorpay_ref=payment_id or order_id,
+            )
+            return jsonify({
+                "status": "error",
+                "code": "HUMAN_APPROVAL_REJECTED",
+                "message": "Payment capture blocked: order was rejected by human supervisor.",
+            }), 400
 
         try:
             payment_res = razorpay_client.capture_payment(

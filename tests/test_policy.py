@@ -106,9 +106,17 @@ def test_spend_ceiling_check(policy_engine):
 
 
 def test_human_approval_threshold(policy_engine):
-    """Test transactions > ₹5,000 require human approval."""
+    """Test transactions >= ₹5,000 require human approval unless explicitly signed off."""
     assert policy_engine.check_human_approval(4999).allowed is True
-    assert policy_engine.check_human_approval(5000).allowed is True
-    res_high = policy_engine.check_human_approval(5001)
+    res_exact = policy_engine.check_human_approval(5000)
+    assert res_exact.allowed is False
+    assert res_exact.code == "HUMAN_APPROVAL_REQUIRED"
+
+    res_high = policy_engine.check_human_approval(7000)
     assert res_high.allowed is False
     assert res_high.code == "HUMAN_APPROVAL_REQUIRED"
+
+    # When explicitly approved by human supervisor
+    res_approved = policy_engine.check_human_approval(7000, human_approved=True)
+    assert res_approved.allowed is True
+    assert res_approved.code == "HUMAN_APPROVAL_GRANTED"
