@@ -136,6 +136,70 @@ def create_app(test_config=None):
                 "message": exc.message,
             }), exc.status_code
 
+    @app.route("/agent/discount", methods=["POST", "DELETE"])
+    def agent_discount():
+        """
+        Validates and applies policy-bounded discount coupons to the agent's cart.
+        Returns structured rejection if expired, invalid, or exceeding policy bounds.
+        """
+        from flask import request
+        from backend.store import get_store
+        from backend.policy import get_policy_engine
+        from backend.catalog import get_catalog_manager
+
+        store = get_store()
+        policy_engine = get_policy_engine()
+        catalog_mgr = get_catalog_manager()
+
+        if request.method == "DELETE":
+            session_id = request.args.get("session_id")
+            cart_dict = store.remove_discount(session_id)
+            return jsonify({
+                "status": "removed",
+                "message": "Discount removed from cart.",
+                "cart": cart_dict,
+            }), 200
+
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id") or request.args.get("session_id")
+        coupon_code = data.get("coupon_code", "").strip()
+        action = data.get("action", "").lower()
+
+        if action == "remove" or not coupon_code:
+            cart_dict = store.remove_discount(session_id)
+            return jsonify({
+                "status": "removed",
+                "message": "Discount removed from cart.",
+                "cart": cart_dict,
+            }), 200
+
+        # Validate through policy engine
+        policy_res = policy_engine.validate_coupon(coupon_code)
+
+        if not policy_res.allowed:
+            return jsonify({
+                "status": "rejected",
+                "reason": policy_res.reason,
+                "code": policy_res.code,
+                "cart": store.get_cart_dict(session_id),
+            }), 200
+
+        # Retrieve coupon details to calculate discount
+        coupon = catalog_mgr.get_coupon(coupon_code)
+        discount_pct = coupon.get("discount_pct", 0) if coupon else 0
+
+        # Apply to session cart
+        cart_dict = store.apply_discount(session_id, coupon_code, discount_pct)
+
+        return jsonify({
+            "status": "applied",
+            "coupon_code": coupon_code.upper(),
+            "discount_pct": discount_pct,
+            "discount_amount": cart_dict.get("discount_amount", 0),
+            "cart": cart_dict,
+            "policy_result": policy_res.to_dict(),
+        }), 200
+
     return app
 
 

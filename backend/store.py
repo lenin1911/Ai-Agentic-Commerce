@@ -50,6 +50,8 @@ class Cart:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.items: Dict[str, CartItem] = {}
+        self.applied_coupon: Optional[Dict[str, Any]] = None
+        self.upsells_count: int = 0
 
     @property
     def item_count(self) -> int:
@@ -59,6 +61,26 @@ class Cart:
     def subtotal(self) -> int:
         return sum(item.total_price for item in self.items.values())
 
+    @property
+    def discount_amount(self) -> int:
+        if not self.applied_coupon:
+            return 0
+        discount_pct = self.applied_coupon.get("discount_pct", 0)
+        return int(round(self.subtotal * (discount_pct / 100.0)))
+
+    @property
+    def total(self) -> int:
+        return max(0, self.subtotal - self.discount_amount)
+
+    def apply_discount(self, coupon_code: str, discount_pct: int) -> None:
+        self.applied_coupon = {
+            "code": coupon_code.strip().upper(),
+            "discount_pct": discount_pct,
+        }
+
+    def remove_discount(self) -> None:
+        self.applied_coupon = None
+
     def to_dict(self) -> Dict[str, Any]:
         items_list = [item.to_dict() for item in self.items.values()]
         return {
@@ -66,6 +88,9 @@ class Cart:
             "items": items_list,
             "item_count": self.item_count,
             "subtotal": self.subtotal,
+            "discount_amount": self.discount_amount,
+            "applied_coupon": self.applied_coupon,
+            "total": self.total,
             "currency": "INR",
         }
 
@@ -198,6 +223,18 @@ class Store:
     def get_cart_dict(self, session_id: str) -> Dict[str, Any]:
         """Returns cart representation as dictionary."""
         cart = self.get_or_create_cart(session_id)
+        return cart.to_dict()
+
+    def apply_discount(self, session_id: str, coupon_code: str, discount_pct: int) -> Dict[str, Any]:
+        """Applies validated discount to cart and recalculates total."""
+        cart = self.get_or_create_cart(session_id)
+        cart.apply_discount(coupon_code, discount_pct)
+        return cart.to_dict()
+
+    def remove_discount(self, session_id: str) -> Dict[str, Any]:
+        """Removes any applied discount from cart and recalculates total."""
+        cart = self.get_or_create_cart(session_id)
+        cart.remove_discount()
         return cart.to_dict()
 
     def reset_all(self) -> None:
