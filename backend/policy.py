@@ -108,16 +108,7 @@ class PolicyEngine:
                 code="COUPON_NOT_FOUND",
             )
 
-        # Check explicit active flag
-        if not coupon.get("active", True):
-            reason = coupon.get("reason") or f"coupon {clean_code} is inactive"
-            return PolicyResult(
-                allowed=False,
-                reason=reason,
-                code="COUPON_INACTIVE",
-            )
-
-        # Check expiration date
+        # Check expiration date first
         expires_at_str = coupon.get("expires_at")
         if expires_at_str:
             try:
@@ -126,11 +117,20 @@ class PolicyEngine:
                 if today > expires_at:
                     return PolicyResult(
                         allowed=False,
-                        reason=f"coupon {clean_code} expired on {expires_at_str}",
+                        reason=f"Coupon '{clean_code}' expired on {expires_at_str}.",
                         code="COUPON_EXPIRED",
                     )
             except ValueError:
                 pass
+
+        # Check explicit active flag
+        if not coupon.get("active", True):
+            reason = coupon.get("reason") or f"coupon {clean_code} is inactive"
+            return PolicyResult(
+                allowed=False,
+                reason=reason,
+                code="COUPON_INACTIVE",
+            )
 
         # Check maximum discount percentage ceiling
         discount_pct = coupon.get("discount_pct", 0)

@@ -50,8 +50,8 @@ def test_coupon_policy_expired_or_inactive(policy_engine):
     """Test expired coupon rejection (SUMMER10 expired 2024-06-30)."""
     result = policy_engine.validate_coupon("SUMMER10", reference_date=date(2026, 6, 1))
     assert result.allowed is False
-    assert result.code in ["COUPON_EXPIRED", "COUPON_INACTIVE"]
-    assert "SUMMER10" in result.reason.upper() or "EXPIRED" in result.reason.upper()
+    assert result.code == "COUPON_EXPIRED"
+    assert "SUMMER10" in result.reason.upper() and "EXPIRED" in result.reason.upper()
 
 
 def test_coupon_policy_excessive_discount(policy_engine):
