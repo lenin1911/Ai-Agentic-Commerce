@@ -156,6 +156,18 @@ class CatalogManager:
         prod = self.get_product(sku)
         return prod is not None and prod.get("agent_eligible") is True
 
+    def get_coupons(self) -> List[Dict[str, Any]]:
+        """Returns all coupons defined in catalog seed."""
+        return self._raw_data.get("coupons", [])
+
+    def get_coupon(self, code: str) -> Optional[Dict[str, Any]]:
+        """Finds coupon by case-insensitive code."""
+        code_upper = code.strip().upper()
+        for c in self.get_coupons():
+            if c.get("code", "").upper() == code_upper:
+                return c
+        return None
+
 
 # Global default catalog instance
 _default_catalog_manager: Optional[CatalogManager] = None
