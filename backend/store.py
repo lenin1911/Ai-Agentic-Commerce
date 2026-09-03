@@ -91,6 +91,7 @@ class Cart:
             "discount_amount": self.discount_amount,
             "applied_coupon": self.applied_coupon,
             "total": self.total,
+            "upsells_count": self.upsells_count,
             "currency": "INR",
         }
 
@@ -235,6 +236,29 @@ class Store:
         """Removes any applied discount from cart and recalculates total."""
         cart = self.get_or_create_cart(session_id)
         cart.remove_discount()
+        return cart.to_dict()
+
+    def add_upsell_item(self, session_id: str, sku: str) -> Dict[str, Any]:
+        """Adds an approved upsell item to the cart and increments session upsells_count."""
+        product = self.catalog_mgr.get_product(sku)
+        if not product:
+            raise CartError(f"SKU '{sku}' does not exist.", code="INVALID_SKU", status_code=400)
+
+        if not product.get("agent_eligible", False):
+            raise CartError(f"Product '{sku}' is not eligible for agent purchase.", code="SKU_NOT_ELIGIBLE", status_code=400)
+
+        cart = self.get_or_create_cart(session_id)
+        if sku in cart.items:
+            cart.items[sku].quantity += 1
+        else:
+            cart.items[sku] = CartItem(
+                sku=product["sku"],
+                name=product["name"],
+                unit_price=product["price"],
+                quantity=1,
+                currency=product.get("currency", "INR"),
+            )
+        cart.upsells_count += 1
         return cart.to_dict()
 
     def reset_all(self) -> None:

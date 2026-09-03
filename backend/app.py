@@ -200,6 +200,73 @@ def create_app(test_config=None):
             "policy_result": policy_res.to_dict(),
         }), 200
 
+    @app.route("/agent/upsell", methods=["POST"])
+    def agent_upsell():
+        """
+        Policy-controlled bounded upsell endpoint.
+        Validates SKU, restricts upsells to 1 per session,
+        and enforces session spend ceiling (₹10,000).
+        """
+        from flask import request
+        from backend.store import get_store, CartError
+        from backend.policy import get_policy_engine
+        from backend.catalog import get_catalog_manager
+
+        store = get_store()
+        policy_engine = get_policy_engine()
+        catalog_mgr = get_catalog_manager()
+
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id") or request.args.get("session_id")
+        upsell_sku = data.get("sku") or data.get("upsell_sku")
+
+        if not upsell_sku:
+            return jsonify({
+                "status": "rejected",
+                "reason": "Field 'sku' or 'upsell_sku' is required for upsell.",
+                "code": "MISSING_SKU",
+                "cart": store.get_cart_dict(session_id),
+            }), 200
+
+        cart = store.get_or_create_cart(session_id)
+        product = catalog_mgr.get_product(upsell_sku)
+        upsell_price = product["price"] if product else 0
+
+        # Validate through policy engine
+        policy_res = policy_engine.validate_upsell(
+            current_upsells_count=cart.upsells_count,
+            upsell_sku=upsell_sku,
+            current_total=cart.total,
+            upsell_price=upsell_price,
+        )
+
+        if not policy_res.allowed:
+            return jsonify({
+                "status": "rejected",
+                "reason": policy_res.reason,
+                "code": policy_res.code,
+                "cart": cart.to_dict(),
+                "policy_result": policy_res.to_dict(),
+            }), 200
+
+        try:
+            updated_cart = store.add_upsell_item(session_id, upsell_sku)
+        except CartError as exc:
+            return jsonify({
+                "status": "rejected",
+                "reason": exc.message,
+                "code": exc.code,
+                "cart": cart.to_dict(),
+            }), 200
+
+        return jsonify({
+            "status": "applied",
+            "message": f"Upsell product '{product['name']}' added to cart.",
+            "upsell_sku": upsell_sku,
+            "cart": updated_cart,
+            "policy_result": policy_res.to_dict(),
+        }), 200
+
     return app
 
 
