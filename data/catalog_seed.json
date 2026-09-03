@@ -1,0 +1,87 @@
+{
+  "store": {
+    "name": "Nova Hardware & Cloud Gear",
+    "currency": "INR",
+    "version": "1.0.0",
+    "policies": {
+      "session_spend_ceiling": 10000,
+      "human_approval_threshold": 5000,
+      "max_discount_pct": 15,
+      "max_upsells_per_session": 1
+    }
+  },
+  "products": [
+    {
+      "sku": "EDGE-DEV-KIT-01",
+      "name": "Edge AI Acceleration Kit",
+      "description": "Compact NPU-equipped edge development board with 16GB unified memory for on-device inference.",
+      "price": 4200,
+      "currency": "INR",
+      "stock": 25,
+      "category": "Hardware",
+      "agent_eligible": true
+    },
+    {
+      "sku": "USB-CORAL-TPU-02",
+      "name": "USB AI Co-Processor Stick",
+      "description": "Plug-and-play neural network accelerator offering 4 TOPS peak performance.",
+      "price": 2800,
+      "currency": "INR",
+      "stock": 40,
+      "category": "Accessories",
+      "agent_eligible": true
+    },
+    {
+      "sku": "ENTERPRISE-SERVER-RACK-03",
+      "name": "Rackmount AI Compute Node",
+      "description": "High-density enterprise server unit for dedicated model inference clusters.",
+      "price": 12500,
+      "currency": "INR",
+      "stock": 4,
+      "category": "Hardware",
+      "agent_eligible": false
+    },
+    {
+      "sku": "CABLE-USB4-PRO-04",
+      "name": "Braided Thunderbolt 4 / USB4 Cable (2m)",
+      "description": "High-throughput 40Gbps rated 100W PD certified data and power link.",
+      "price": 650,
+      "currency": "INR",
+      "stock": 100,
+      "category": "Accessories",
+      "agent_eligible": true
+    },
+    {
+      "sku": "CASE-ALU-COOL-05",
+      "name": "Active Cooling Aluminum Enclosure",
+      "description": "Precision CNC milled heatsink case with silent PWM fan for Edge boards.",
+      "price": 850,
+      "currency": "INR",
+      "stock": 50,
+      "category": "Enclosures",
+      "agent_eligible": true
+    }
+  ],
+  "coupons": [
+    {
+      "code": "WELCOME10",
+      "discount_pct": 10,
+      "expires_at": "2026-12-31",
+      "active": true
+    },
+    {
+      "code": "SUMMER10",
+      "discount_pct": 10,
+      "expires_at": "2024-06-30",
+      "active": false,
+      "reason": "Expired promotional coupon"
+    },
+    {
+      "code": "EXCESSIVE50",
+      "discount_pct": 50,
+      "expires_at": "2026-12-31",
+      "active": true,
+      "reason": "Exceeds max allowed discount policy"
+    }
+  ]
+}
