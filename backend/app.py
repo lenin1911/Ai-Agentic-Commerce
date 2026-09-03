@@ -26,6 +26,7 @@ def create_app(test_config=None):
             "version": "0.1.0",
             "track": "AI Growth & Agentic Commerce",
             "docs": "/.well-known/agent-catalog.json",
+            "dashboard": "/dashboard",
         })
 
     @app.after_request

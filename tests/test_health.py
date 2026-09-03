@@ -16,6 +16,7 @@ def test_index_endpoint(client):
     data = response.get_json()
     assert data["service"] == "Agent Storefront"
     assert data["status"] == "online"
+    assert data["dashboard"] == "/dashboard"
 
 
 def test_health_endpoint(client):
