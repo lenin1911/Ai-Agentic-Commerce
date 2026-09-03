@@ -481,13 +481,23 @@ def create_app(test_config=None):
                 "policy_result": approval_res.to_dict(),
             }), 200
 
-        # 4. Standard autonomous checkout approved
-        order_id = f"order_{uuid.uuid4().hex[:14]}"
+        # 4. Standard autonomous checkout approved: create Razorpay order
+        from backend.razorpay_client import get_razorpay_client
+
+        razorpay_client = get_razorpay_client(force_mock=app.config.get("FORCE_MOCK_RAZORPAY", False))
+        rzp_order = razorpay_client.create_order(
+            amount_in_inr=order_total,
+            currency=cart.get("currency", "INR"),
+            receipt=f"rcpt_{session_id[:10]}",
+            notes={"session_id": session_id, "buyer_info": buyer_info},
+        )
+        order_id = rzp_order["id"]
+
         audit_logger.log(
             session_id=session_id,
             actor="buyer_agent",
             action="checkout",
-            payload_summary={"amount": order_total, "buyer_info": buyer_info},
+            payload_summary={"amount": order_total, "order": rzp_order},
             policy_result="ALLOWED",
             reason="Order approved within autonomous policy boundaries.",
             razorpay_ref=order_id,
@@ -496,11 +506,92 @@ def create_app(test_config=None):
         return jsonify({
             "status": "success",
             "order_id": order_id,
+            "razorpay_order": rzp_order,
             "amount": order_total,
             "currency": cart.get("currency", "INR"),
             "cart": cart,
             "policy_result": approval_res.to_dict(),
         }), 200
+
+    @app.route("/agent/payment/capture", methods=["POST"])
+    def agent_payment_capture():
+        """
+        Captures payment for an approved order.
+        Validates payment identifier, executes capture via Razorpay client,
+        and logs the final money-moving audit entry.
+        """
+        from flask import request
+        from backend.store import get_store
+        from backend.audit import get_audit_logger
+        from backend.razorpay_client import get_razorpay_client
+
+        store = get_store()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
+        razorpay_client = get_razorpay_client(force_mock=app.config.get("FORCE_MOCK_RAZORPAY", False))
+
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id") or request.args.get("session_id")
+        payment_id = data.get("payment_id")
+        order_id = data.get("order_id")
+        amount = data.get("amount")
+
+        if not session_id or not order_id:
+            return jsonify({
+                "status": "error",
+                "code": "MISSING_PAYMENT_DETAILS",
+                "message": "Both session_id and order_id are required for capture.",
+            }), 400
+
+        cart = store.get_cart_dict(session_id)
+        capture_amount = amount or cart.get("total", 0)
+
+        try:
+            payment_res = razorpay_client.capture_payment(
+                payment_id=payment_id,
+                amount_in_inr=capture_amount,
+                currency=cart.get("currency", "INR"),
+            )
+
+            actual_payment_id = payment_res.get("id", payment_id)
+
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="payment_capture",
+                payload_summary={"order_id": order_id, "amount": capture_amount, "payment": payment_res},
+                policy_result="ALLOWED",
+                reason="Payment successfully captured and confirmed.",
+                razorpay_ref=actual_payment_id,
+            )
+
+            # Clear cart on successful settlement
+            store.clear_cart(session_id)
+
+            return jsonify({
+                "status": "success",
+                "message": "Payment captured and order settled.",
+                "payment_id": actual_payment_id,
+                "order_id": order_id,
+                "amount": capture_amount,
+                "currency": cart.get("currency", "INR"),
+                "payment": payment_res,
+            }), 200
+
+        except Exception as exc:
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="payment_capture",
+                payload_summary={"order_id": order_id, "payment_id": payment_id, "amount": capture_amount},
+                policy_result="REJECTED",
+                reason=f"Payment capture failure: {exc}",
+                razorpay_ref=payment_id or order_id,
+            )
+            return jsonify({
+                "status": "error",
+                "code": "PAYMENT_CAPTURE_FAILED",
+                "message": str(exc),
+            }), 400
 
     return app
 
