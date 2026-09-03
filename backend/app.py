@@ -28,6 +28,28 @@ def create_app(test_config=None):
             "docs": "/.well-known/agent-catalog.json",
         })
 
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, DELETE, OPTIONS"
+        return response
+
+    frontend_dir = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend"
+    )
+
+    @app.route("/dashboard")
+    @app.route("/dashboard/")
+    def dashboard():
+        from flask import send_from_directory
+        return send_from_directory(frontend_dir, "index.html")
+
+    @app.route("/dashboard/<path:filename>")
+    def dashboard_static(filename):
+        from flask import send_from_directory
+        return send_from_directory(frontend_dir, filename)
+
     @app.route("/health")
     def health():
         return jsonify({

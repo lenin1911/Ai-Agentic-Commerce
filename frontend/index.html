@@ -3,21 +3,196 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Agent Storefront — Merchant Dashboard</title>
+  <title>Agent Storefront — Merchant Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="app">
-    <header>
-      <h1>Agent Storefront</h1>
-      <p>AI Growth & Agentic Commerce Reference Implementation</p>
-    </header>
-    <main>
-      <section id="status-card">
-        <h2>System Status</h2>
-        <p id="system-status">Initializing...</p>
-      </section>
-    </main>
+  <!-- Navigation / Header -->
+  <nav class="navbar">
+    <div class="brand-section">
+      <div class="brand-logo">AS</div>
+      <div class="brand-title">
+        <h1>Agent Storefront</h1>
+        <p>AI Growth & Agentic Commerce Merchant Console</p>
+      </div>
+    </div>
+
+    <div class="session-toolbar">
+      <div id="connection-status" class="status-pill">
+        <span class="status-dot"></span> Checking API...
+      </div>
+
+      <div class="session-input-group">
+        <label for="session-id-input">Session:</label>
+        <input type="text" id="session-id-input" value="demo_session" placeholder="Session ID">
+      </div>
+
+      <button id="btn-update-session" class="btn btn-secondary btn-sm" title="Switch to entered session ID">
+        Switch
+      </button>
+
+      <button id="btn-new-session" class="btn btn-secondary btn-sm" title="Generate clean session">
+        + New
+      </button>
+
+      <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-muted);cursor:pointer;user-select:none;">
+        <input type="checkbox" id="auto-refresh-toggle" checked style="cursor:pointer;"> Auto-Sync
+      </label>
+    </div>
+  </nav>
+
+  <!-- Main Container -->
+  <div class="container">
+    <!-- Stat Highlights Row -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <span class="stat-label">Cart Total</span>
+        <span class="stat-value" id="stat-cart-total">₹0</span>
+        <span class="stat-subtext" id="stat-cart-items">0 items</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Discount Status</span>
+        <span class="stat-value" id="stat-discount-status" style="font-size: 16px; color: var(--text-secondary);">No Discount</span>
+        <span class="stat-subtext">Max Policy Limit: 15%</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Upsell Status</span>
+        <span class="stat-value" id="stat-upsell-status" style="font-size: 16px; color: var(--accent-cyan);">0 / 1 Applied</span>
+        <span class="stat-subtext">Session Bound: 1 Max</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Human Approval Gate</span>
+        <span class="stat-value" id="stat-approval-status" style="font-size: 16px; color: var(--accent-success);">Autonomous</span>
+        <span class="stat-subtext">Threshold: ≥ ₹5,000</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Payment Gateway</span>
+        <span class="stat-value" id="stat-payment-status" style="font-size: 16px; color: var(--text-muted);">Idle</span>
+        <span class="stat-subtext">Razorpay / Test Mode</span>
+      </div>
+    </div>
+
+    <!-- Main Grid: Left Column (Store Operations) & Right Column (Audit Trail) -->
+    <div class="dashboard-grid">
+      <!-- Left Column -->
+      <div class="main-column">
+        <!-- Panel 1: Product Catalog -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>Merchant Product Catalog</span>
+              <span class="panel-badge">Agent-Readable</span>
+            </div>
+            <span style="font-size:12px;color:var(--text-muted);">Source: <code>/.well-known/agent-catalog.json</code></span>
+          </div>
+          <div id="catalog-container" class="product-grid">
+            <div class="empty-state">Loading product catalog...</div>
+          </div>
+        </div>
+
+        <!-- Panel 2: Agent Cart & Discount Engine -->
+        <div class="panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>Agent Shopping Cart</span>
+              <span class="panel-badge">In-Memory Store</span>
+            </div>
+            <button id="btn-clear-cart" class="btn btn-secondary btn-sm">Clear Cart</button>
+          </div>
+
+          <div id="cart-items-container" class="cart-items">
+            <div class="empty-state">Cart is currently empty.</div>
+          </div>
+
+          <!-- Cart Financial Summary -->
+          <div class="cart-summary">
+            <div class="summary-row">
+              <span>Cart Subtotal</span>
+              <span id="cart-subtotal">₹0</span>
+            </div>
+            <div class="summary-row discount" id="cart-discount-row" style="display:none;">
+              <span>Policy Discount</span>
+              <span id="cart-discount">-₹0</span>
+            </div>
+            <div class="summary-row total">
+              <span>Final Total</span>
+              <span id="cart-total">₹0</span>
+            </div>
+          </div>
+
+          <!-- Discount Coupon Application -->
+          <div class="coupon-section">
+            <div style="font-size:13px;font-weight:600;color:var(--text-primary);">Policy-Controlled Coupons</div>
+            <div class="coupon-input-group">
+              <input type="text" id="coupon-code-input" placeholder="Enter coupon code (e.g. SUMMER10, WELCOME10)">
+              <button id="btn-apply-coupon" class="btn btn-primary btn-sm">Apply Coupon</button>
+              <button id="btn-remove-coupon" class="btn btn-secondary btn-sm">Remove</button>
+            </div>
+            <div class="quick-coupons">
+              <span>Quick Test:</span>
+              <span class="chip" data-coupon="WELCOME10" title="Valid 10% discount">WELCOME10 (Valid 10%)</span>
+              <span class="chip" data-coupon="SUMMER10" title="Expired coupon recovery test" style="color:#f87171;border-color:rgba(239,68,68,0.3)">SUMMER10 (Expired)</span>
+              <span class="chip" data-coupon="EXCESSIVE50" title="Exceeds 15% policy ceiling" style="color:#f59e0b;border-color:rgba(245,158,11,0.3)">EXCESSIVE50 (>15%)</span>
+            </div>
+            <div id="discount-alert" style="display:none;"></div>
+          </div>
+
+          <!-- Policy-Controlled Upsells -->
+          <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div style="font-size:13px;font-weight:600;margin-bottom:10px;display:flex;justify-content:space-between;">
+              <span>Bounded Upsell Recommendations</span>
+              <span style="font-size:11px;color:var(--text-muted);">Max 1 upsell / session</span>
+            </div>
+            <div id="upsell-container">
+              <!-- Dynamically populated from catalog -->
+            </div>
+          </div>
+
+          <!-- Checkout & Approval Actions -->
+          <div style="margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 16px;">
+            <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <button id="btn-checkout" class="btn btn-primary">
+                ⚡ Simulate Agent Checkout
+              </button>
+              <span style="font-size:12px;color:var(--text-muted);">
+                Triggers server-side spend ceiling and human approval checks.
+              </span>
+            </div>
+
+            <!-- Dynamic Approval Gate Section (appears when total >= ₹5,000) -->
+            <div id="approval-gate-section" style="display:none;"></div>
+
+            <!-- Dynamic Razorpay Order / Payment Result Section -->
+            <div id="checkout-section" style="margin-top:12px;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right Column: Real-Time Audit Ledger -->
+      <div class="audit-column">
+        <div class="panel" style="position: sticky; top: 80px;">
+          <div class="panel-header">
+            <div class="panel-title">
+              <span>Immutable Audit Trail</span>
+              <span class="panel-badge">SQLite Ledger</span>
+            </div>
+            <button id="btn-refresh-audit" class="btn btn-secondary btn-sm">Refresh</button>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;">
+            Cryptographically timestamped server ledger capturing policy evaluations, coupon attempts, and payment events for current session.
+          </p>
+
+          <div id="audit-log-container" class="audit-list">
+            <div class="empty-state">Loading audit trail...</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
