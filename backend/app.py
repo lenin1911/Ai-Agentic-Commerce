@@ -35,6 +35,14 @@ def create_app(test_config=None):
             "service": "agent-storefront",
         }), 200
 
+    @app.route("/.well-known/agent-catalog.json", methods=["GET"])
+    def agent_catalog():
+        """Exposes structured, machine-readable product catalog for AI buyers."""
+        from backend.catalog import get_catalog_manager
+
+        catalog_mgr = get_catalog_manager(app.config.get("CATALOG_PATH"))
+        return jsonify(catalog_mgr.get_agent_catalog()), 200
+
     return app
 
 
