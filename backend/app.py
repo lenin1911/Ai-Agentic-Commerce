@@ -392,6 +392,116 @@ def create_app(test_config=None):
             "audit_trail": entries,
         }), 200
 
+    @app.route("/agent/checkout", methods=["POST"])
+    def agent_checkout():
+        """
+        Executes policy-gated checkout.
+        Validates cart, enforces spend ceilings, checks human approval thresholds,
+        records audit entries, and generates order reference.
+        """
+        import uuid
+        from flask import request
+        from backend.store import get_store
+        from backend.policy import get_policy_engine
+        from backend.audit import get_audit_logger
+
+        store = get_store()
+        policy_engine = get_policy_engine()
+        audit_logger = get_audit_logger(app.config.get("AUDIT_DB_PATH"))
+
+        data = request.get_json(silent=True) or {}
+        session_id = data.get("session_id") or request.args.get("session_id")
+        buyer_info = data.get("buyer_info", {})
+
+        if not session_id:
+            return jsonify({
+                "status": "rejected",
+                "code": "MISSING_SESSION_ID",
+                "reason": "Session ID is required for checkout.",
+            }), 400
+
+        cart = store.get_cart_dict(session_id)
+
+        # 1. Cart Validation
+        if cart.get("item_count", 0) <= 0 or not cart.get("items"):
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="checkout",
+                payload_summary={"buyer_info": buyer_info},
+                policy_result="REJECTED",
+                reason="Cannot checkout with an empty cart.",
+            )
+            return jsonify({
+                "status": "rejected",
+                "code": "EMPTY_CART",
+                "reason": "Cannot checkout with an empty cart.",
+                "cart": cart,
+            }), 200
+
+        order_total = cart.get("total", 0)
+
+        # 2. Spend Ceiling Check (<= ₹10,000)
+        spend_res = policy_engine.check_spend_ceiling(order_total)
+        if not spend_res.allowed:
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="checkout",
+                payload_summary={"amount": order_total, "buyer_info": buyer_info},
+                policy_result="REJECTED",
+                reason=spend_res.reason,
+            )
+            return jsonify({
+                "status": "rejected",
+                "code": spend_res.code,
+                "reason": spend_res.reason,
+                "cart": cart,
+                "policy_result": spend_res.to_dict(),
+            }), 200
+
+        # 3. Human Approval Threshold Check (> ₹5,000)
+        approval_res = policy_engine.check_human_approval(order_total)
+        if not approval_res.allowed:
+            audit_logger.log(
+                session_id=session_id,
+                actor="buyer_agent",
+                action="checkout",
+                payload_summary={"amount": order_total, "buyer_info": buyer_info},
+                policy_result="HUMAN_APPROVAL_REQUIRED",
+                reason=approval_res.reason,
+            )
+            return jsonify({
+                "status": "approval_required",
+                "code": approval_res.code,
+                "reason": approval_res.reason,
+                "amount": order_total,
+                "currency": cart.get("currency", "INR"),
+                "cart": cart,
+                "policy_result": approval_res.to_dict(),
+            }), 200
+
+        # 4. Standard autonomous checkout approved
+        order_id = f"order_{uuid.uuid4().hex[:14]}"
+        audit_logger.log(
+            session_id=session_id,
+            actor="buyer_agent",
+            action="checkout",
+            payload_summary={"amount": order_total, "buyer_info": buyer_info},
+            policy_result="ALLOWED",
+            reason="Order approved within autonomous policy boundaries.",
+            razorpay_ref=order_id,
+        )
+
+        return jsonify({
+            "status": "success",
+            "order_id": order_id,
+            "amount": order_total,
+            "currency": cart.get("currency", "INR"),
+            "cart": cart,
+            "policy_result": approval_res.to_dict(),
+        }), 200
+
     return app
 
 
